@@ -425,6 +425,33 @@ in
       '';
     };
 
+    home.replaceRuntimeDependencies = mkOption {
+      default = [];
+      example = lib.literalExpression "[ ({ original = pkgs.openssl; replacement = pkgs.callPackage /path/to/openssl { }; }) ]";
+      type = types.listOf (types.submodule (
+        { ... }: {
+          options.original = mkOption {
+            type = types.package;
+            description = lib.mdDoc "The original package to override.";
+          };
+
+          options.replacement = mkOption {
+            type = types.package;
+            description = lib.mdDoc "The replacement package.";
+          };
+        })
+      );
+      apply = map ({ original, replacement, ... }: {
+        oldDependency = original;
+        newDependency = replacement;
+      });
+      description = lib.mdDoc ''
+        List of packages to override without doing a full rebuild.
+        The original derivation and replacement derivation must have the same
+        name length, and ideally should have close-to-identical directory layout.
+      '';
+    };
+
     home.activationPackage = mkOption {
       internal = true;
       type = types.package;
@@ -719,8 +746,8 @@ in
 
           ${activationCmds}
         '';
-      in
-        pkgs.runCommand
+
+        activationBasePackage = pkgs.runCommand
           "home-manager-generation"
           {
             preferLocalBuild = true;
@@ -742,7 +769,11 @@ in
             ln -s ${cfg.path} $out/home-path
 
             ${cfg.extraBuilderCommands}
-          '';
+        '';
+      in
+        foldr ({ oldDependency, newDependency }: drv:
+          pkgs.replaceDependency { inherit oldDependency newDependency drv; }
+        ) activationBasePackage cfg.replaceRuntimeDependencies;
 
     home.path = pkgs.buildEnv {
       name = "home-manager-path";
